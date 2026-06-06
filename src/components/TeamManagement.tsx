@@ -17,7 +17,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
 export const TeamManagement: React.FC = () => {
-  const { organizations, activeOrgId, getOrgWorkload, getAIWorkloadInsights, currentUser } = useApp();
+  const { organizations, activeOrgId, getOrgWorkload, getAIWorkloadInsights, currentUser, updateMemberRole } = useApp();
   const activeOrg = organizations.find(o => o.id === activeOrgId);
   const [search, setSearch] = useState('');
   const [aiInsights, setAiInsights] = useState<{ overallStatus: string; insights: any[] } | null>(null);
@@ -26,7 +26,7 @@ export const TeamManagement: React.FC = () => {
   if (!activeOrg) return null;
 
   const currentUserMember = activeOrg.members.find(m => m.userId === currentUser?.id);
-  const isLeader = currentUserMember?.roleType === 'leader';
+  const isPrivileged = !!currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
 
   const workload = getOrgWorkload(activeOrgId!);
 
@@ -70,6 +70,21 @@ export const TeamManagement: React.FC = () => {
         <div>
           <h1 className="text-4xl font-black text-brand-dark uppercase tracking-tight">Kapasitas Tim</h1>
           <p className="text-gray-400 font-medium italic">Pantau distribusi tugas di <span className="text-brand-teal font-black uppercase text-xs tracking-widest">{activeOrg.name}</span></p>
+          <div className="mt-2 flex items-center gap-3 text-[12px]">
+            {activeOrg.joinCode && (
+              <div className="flex items-center gap-2 text-gray-500">
+                <span className="font-black uppercase text-[10px]">Kode:</span>
+                <span className="bg-white border border-gray-100 px-2 py-1 rounded text-[12px]">{activeOrg.joinCode}</span>
+                <button onClick={() => navigator.clipboard?.writeText(activeOrg.joinCode)} className="px-2 py-1 bg-brand-teal text-white rounded text-[10px] font-black">Salin</button>
+              </div>
+            )}
+            {activeOrg.subscription && (
+              <div className="flex items-center gap-2 text-gray-500">
+                <span className="font-black uppercase text-[10px]">Tier:</span>
+                <span className="bg-white border border-gray-100 px-2 py-1 rounded text-[12px]">{activeOrg.subscription.tier}</span>
+              </div>
+            )}
+          </div>
         </div>
         
         <button 
@@ -166,6 +181,14 @@ export const TeamManagement: React.FC = () => {
                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{member.role}</span>
                        <div className="w-1 h-1 bg-gray-200 rounded-full" />
                        <span className="text-[10px] font-black text-brand-teal uppercase tracking-widest">{member.division || 'Umum'}</span>
+                      {isPrivileged && (
+                        <select value={member.roleType} onChange={(e) => updateMemberRole(activeOrg.id, member.id, e.target.value as any)} className="ml-3 bg-white border border-gray-100 rounded px-2 py-1 text-[10px] font-black">
+                          <option value="owner">Owner</option>
+                          <option value="leader">Leader</option>
+                          <option value="coordinator">Coordinator</option>
+                          <option value="member">Member</option>
+                        </select>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-col items-center sm:items-end">

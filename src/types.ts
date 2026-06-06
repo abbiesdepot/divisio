@@ -11,7 +11,7 @@ export interface User {
   experience?: string;
 }
 
-export type RoleType = 'leader' | 'member';
+export type RoleType = 'owner' | 'leader' | 'coordinator' | 'member';
 
 export interface Member {
   id: string;
@@ -61,6 +61,13 @@ export interface Organization {
   name: string;
   members: Member[];
   memberEmails: string[];
+  joinCode?: string; // short code to allow joining
+  subscription?: {
+    tier: 'free' | 'silver' | 'gold' | 'diamond';
+    expiresAt?: string | null;
+    maxProjects: number;
+    maxMembers: number;
+  };
 }
 
 export interface Recommendation {

@@ -18,14 +18,29 @@ interface AppContextType extends AppState {
   register: (name: string, email: string, password: string) => void;
   login: (email: string, password: string) => boolean;
   logout: () => void;
-  joinOrganization: (orgId: string, role: string, division: string, roleType?: RoleType) => boolean;
+  joinOrganization: (joinCodeOrOrgId: string, role: string, division: string, roleType?: RoleType) => boolean;
+  updateMemberRole: (orgId: string, memberId: string, roleType: RoleType) => void;
+  chargeAdditionalMember: (orgId: string) => boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'teamsync_data_v4'; // Bump version
 
-const INITIAL_DATA: AppState = {
+  const generateJoinCode = (name: string) => {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 12) + '-' + Math.random().toString(36).slice(2,6);
+  };
+
+  const getSubscriptionDefaults = (tier: 'free' | 'silver' | 'gold' | 'diamond') => {
+    switch (tier) {
+      case 'silver': return { tier, expiresAt: null, maxProjects: 5, maxMembers: 50 };
+      case 'gold': return { tier, expiresAt: null, maxProjects: 20, maxMembers: 150 };
+      case 'diamond': return { tier, expiresAt: null, maxProjects: 100, maxMembers: 1000 };
+      default: return { tier: 'free' as const, expiresAt: null, maxProjects: 1, maxMembers: 20 };
+    }
+  };
+
+  const INITIAL_DATA: AppState = {
   users: [],
   currentUser: null,
   organizations: [
@@ -33,6 +48,8 @@ const INITIAL_DATA: AppState = {
       id: 'default-org',
       name: 'Workspace Global',
       memberEmails: [], // Nobody in by default, need to join or be created
+      joinCode: 'global-001',
+      subscription: getSubscriptionDefaults('free'),
       members: [
         { id: 'd1', name: 'Budi Santoso', role: 'Pemimpin Tim', roleType: 'leader', division: 'Desain', orgId: 'default-org', expertise: 'UI/UX Design', skills: ['Figma', 'Adobe XD', 'Prototyping', 'Creative Direction'] },
         { id: 'd2', name: 'Ani Wijaya', role: 'Pengembang Senior', roleType: 'member', division: 'Teknik', orgId: 'default-org', expertise: 'Fullstack Development', skills: ['React', 'TypeScript', 'Node.js', 'System Architecture'] },
@@ -103,14 +120,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setState(s => ({ ...s, currentUser: null, activeOrgId: null }));
   };
 
-  const joinOrganization = (orgId: string, role: string, division: string, roleType: RoleType = 'member') => {
-    const org = state.organizations.find(o => o.id === orgId);
+  const joinOrganization = (joinCodeOrOrgId: string, role: string, division: string, roleType: RoleType = 'member') => {
+    const org = state.organizations.find(o => o.id === joinCodeOrOrgId || o.joinCode === joinCodeOrOrgId);
     if (org && state.currentUser) {
       if (org.memberEmails.includes(state.currentUser.email)) {
-        setState(s => ({ ...s, activeOrgId: orgId }));
+        setState(s => ({ ...s, activeOrgId: org.id }));
         return true;
       }
-      
+
+      // Enforce member limit based on subscription
+      const max = org.subscription?.maxMembers ?? 20;
+      if (org.members.length >= max) {
+        // Exceeded free tier; caller should charge or block
+        return false;
+      }
+
       const newMember: Member = {
         id: crypto.randomUUID(),
         userId: state.currentUser.id,
@@ -118,19 +142,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         role,
         roleType,
         division,
-        orgId
+        orgId: org.id
       };
 
       setState(s => ({
         ...s,
         organizations: s.organizations.map(o => 
-          o.id === orgId ? { 
+          o.id === org.id ? { 
             ...o, 
             memberEmails: [...o.memberEmails, state.currentUser!.email],
             members: [...o.members, newMember]
           } : o
         ),
-        activeOrgId: orgId
+        activeOrgId: org.id
       }));
       return true;
     }
@@ -146,7 +170,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       userId: state.currentUser?.id,
       name: state.currentUser ? state.currentUser.name : 'Unknown User',
       role: 'Founding Member',
-      roleType: 'leader',
+      roleType: 'owner',
       division: 'Management',
        orgId
     };
@@ -156,6 +180,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       name,
       members: [creatorMember],
       memberEmails: state.currentUser ? [state.currentUser.email] : [],
+      joinCode: generateJoinCode(name),
+      subscription: getSubscriptionDefaults('free')
     };
     setState(s => ({
       ...s,
@@ -165,6 +191,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addMember = (orgId: string, member: Omit<Member, 'id' | 'orgId'>) => {
+    const org = state.organizations.find(o => o.id === orgId);
+    if (!org) return;
+    const max = org.subscription?.maxMembers ?? 20;
+    if (org.members.length >= max) {
+      // In a real app, charge or prompt for upgrade. For now block.
+      return;
+    }
     const newMember: Member = { ...member, id: crypto.randomUUID(), orgId };
     setState(s => ({
       ...s,
@@ -226,10 +259,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateTaskStatus = (taskId: string, status: Task['status']) => {
+    setState(s => {
+      const task = s.tasks.find(t => t.id === taskId);
+      if (!task) return s;
+
+      const org = s.organizations.find(o => o.id === task.orgId || o.id === s.activeOrgId);
+      const currentUserMember = org && s.currentUser ? org.members.find(m => m.userId === s.currentUser!.id) : undefined;
+      const isPrivileged = currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
+
+      // Enforce approval flow: non-privileged users cannot set to 'done' directly
+      let newStatus = status;
+      if (status === 'done' && !isPrivileged) {
+        newStatus = 'pending_approval';
+      }
+
+      return {
+        ...s,
+        tasks: s.tasks.map(t => (t.id === taskId ? { ...t, status: newStatus } : t)),
+      };
+    });
+  };
+
+  const updateMemberRole = (orgId: string, memberId: string, roleType: RoleType) => {
     setState(s => ({
       ...s,
-      tasks: s.tasks.map(t => (t.id === taskId ? { ...t, status } : t)),
+      organizations: s.organizations.map(o => o.id === orgId ? { ...o, members: o.members.map(m => m.id === memberId ? { ...m, roleType } : m) } : o)
     }));
+  };
+
+  const chargeAdditionalMember = (orgId: string) => {
+    // Placeholder: integrate payment provider here. Return true if charged.
+    console.warn('chargeAdditionalMember called for', orgId);
+    return true;
   };
 
   const deleteTask = (taskId: string) => {
@@ -356,6 +417,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         login,
         logout,
         joinOrganization,
+        updateMemberRole,
+        chargeAdditionalMember,
       }}
     >
       {children}

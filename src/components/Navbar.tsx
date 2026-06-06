@@ -218,6 +218,13 @@ export const Navbar: React.FC<NavbarProps> = ({ activePage, setActivePage }) => 
                     </div>
                   </form>
                 )}
+                {activeOrg?.joinCode && (
+                  <div className="mt-3 text-[10px] text-gray-500 flex items-center gap-2">
+                    <span className="font-black uppercase">Kode Bergabung:</span>
+                    <input readOnly value={activeOrg.joinCode} className="bg-white border border-gray-100 rounded px-2 py-1 text-xs" />
+                    <button onClick={() => { navigator.clipboard?.writeText(activeOrg.joinCode); }} className="px-2 py-1 bg-brand-teal text-white rounded text-[10px] font-black">Salin</button>
+                  </div>
+                )}
               </div>
             </div>
           )}

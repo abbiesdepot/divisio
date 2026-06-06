@@ -183,7 +183,7 @@ export const TasksPage: React.FC = () => {
 
   const activeOrg = organizations.find(o => o.id === activeOrgId);
   const currentUserMember = activeOrg?.members.find(m => m.userId === currentUser?.id);
-  const isLeader = currentUserMember?.roleType === 'leader';
+  const isPrivileged = !!currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
 
   if (!activeOrg) return null;
 
@@ -505,7 +505,7 @@ export const TasksPage: React.FC = () => {
                           >
                             <ChevronRight className="w-4 h-4" />
                           </button>
-                          {isLeader && (
+                          {isPrivileged && (
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -582,7 +582,7 @@ export const TasksPage: React.FC = () => {
                         </div>
 
                         {/* Approval Actions */}
-                        {isLeader && task.status === 'pending_approval' && (
+                        {isPrivileged && task.status === 'pending_approval' && (
                           <div className="flex gap-2 mt-4 pt-4 border-t border-gray-50">
                             <button 
                               onClick={() => updateTaskStatus(task.id, 'done')}
@@ -664,7 +664,7 @@ export const TasksPage: React.FC = () => {
                               <h4 className="font-black text-brand-dark uppercase tracking-tight mb-6 line-clamp-2 leading-tight">{task.name}</h4>
 
                               {/* Kanban Approval Actions */}
-                              {isLeader && task.status === 'pending_approval' && (
+                              {isPrivileged && task.status === 'pending_approval' && (
                                 <div className="flex gap-2 mb-6 p-3 bg-brand-grey rounded-2xl border border-gray-100 shadow-inner">
                                    <button 
                                     onClick={() => updateTaskStatus(task.id, 'done')}
@@ -764,7 +764,7 @@ const TaskDetailModal: React.FC<{
   const [attachmentForm, setAttachmentForm] = useState({ name: '', url: '', type: 'link' as 'link' | 'file' });
   const { currentUser, updateAttachment, updateTaskStatus } = useApp();
   const currentUserMember = activeOrg.members?.find((m: any) => m.userId === currentUser?.id);
-  const isLeader = currentUserMember?.roleType === 'leader';
+  const isPrivileged = !!currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
 
   if (!task) return null;
 
@@ -853,7 +853,7 @@ const TaskDetailModal: React.FC<{
               </div>
               
               {/* Approval Row in Modal */}
-              {isLeader && task.status === 'pending_approval' && (
+              {isPrivileged && task.status === 'pending_approval' && (
                 <div className="flex gap-4 p-4 bg-brand-teal/5 rounded-2xl border border-brand-teal/10 mt-6 slide-in-bottom">
                   <div className="flex-1 space-y-1">
                     <p className="text-[10px] font-black uppercase tracking-widest text-brand-teal">Verifikasi Diperlukan</p>
@@ -893,7 +893,7 @@ const TaskDetailModal: React.FC<{
               <section>
                 <div className="flex items-center justify-between mb-4">
                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em]">Detail Tugas</h3>
-                   {isLeader && (
+                   {isPrivileged && (
                      <div className="flex items-center gap-2 text-brand-yellow bg-brand-yellow/5 px-2 py-1 rounded border border-brand-yellow/10">
                         <Zap className="w-3 h-3 fill-brand-yellow" />
                         <span className="text-[8px] font-black uppercase">Editor Mode</span>
@@ -905,7 +905,7 @@ const TaskDetailModal: React.FC<{
                 </p>
               </section>
 
-              {isLeader && task.status !== 'done' && (
+              {isPrivileged && task.status !== 'done' && (
                 <AIRecommendations 
                   taskId={task.id} 
                   selectedId={task.assigneeId}
