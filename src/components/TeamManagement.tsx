@@ -27,7 +27,10 @@ export const TeamManagement: React.FC<{ onNavigate?: (page: 'dashboard' | 'tasks
 
   const currentUserMember = activeOrg.members.find(m => m.userId === currentUser?.id);
   // Using isPrivileged instead of isLeader to allow coordinators/owners to edit as well
-  const isPrivileged = !!currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
+  const isPrivileged = !!currentUserMember && (
+    ['owner','leader','coordinator'].includes(currentUserMember.roleType) ||
+    /pemimpin|ketua|leader|coordinator|manager|pic/i.test(currentUserMember.role)
+  );
 
   const workload = getOrgWorkload(activeOrgId!);
 
@@ -182,30 +185,52 @@ export const TeamManagement: React.FC<{ onNavigate?: (page: 'dashboard' | 'tasks
                     <div className="flex items-center justify-between w-full">
                       <h3 className="text-xl font-black text-brand-dark uppercase tracking-tight leading-none mb-2">{member.name}</h3>
                       
-                      {/* LEADER CONTROLS */}
-                      {isPrivileged && member.userId !== currentUser?.id && (
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={() => {
-                              const newRole = prompt(`Masukkan peran baru untuk ${member.name}:`, member.role);
-                              if (newRole) updateMemberRole(activeOrgId!, member.id, newRole);
-                            }}
-                            className="text-[9px] font-black uppercase text-brand-teal tracking-widest hover:underline bg-brand-teal/10 px-2 py-1 rounded"
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            onClick={() => {
-                              if (window.confirm(`Keluarkan ${member.name} dari workspace?`)) {
-                                removeMember(activeOrgId!, member.id);
-                              }
-                            }}
-                            className="text-[9px] font-black uppercase text-red-500 tracking-widest hover:underline bg-red-500/10 px-2 py-1 rounded"
-                          >
-                            Kick
-                          </button>
-                        </div>
-                      )}
+                   {/* LEADER CONTROLS */}
+{isPrivileged && member.userId !== currentUser?.id && (
+  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+    <button 
+      onClick={() => {
+        const newRole = prompt(`Masukkan peran baru untuk ${member.name}:`, member.role);
+        const newDivision = prompt(`Masukkan divisi baru untuk ${member.name}:`, member.division || "Umum");
+        
+        if (newRole || newDivision) {
+          updateMember(activeOrgId!, member.id, {
+            role: newRole || member.role,
+            division: newDivision || member.division
+          });
+        }
+      }}
+      className="text-[9px] font-black uppercase text-brand-teal tracking-widest hover:underline bg-brand-teal/10 px-2 py-1 rounded"
+    >
+      Edit Data
+    </button>
+    
+    <button 
+      onClick={() => {
+        const currentType = member.roleType;
+        const newType = window.confirm(`Jadikan ${member.name} sebagai Koordinator/Leader? Klik OK untuk Ya, klik Cancel untuk Anggota Biasa.`) 
+          ? 'leader' 
+          : 'member';
+        
+        updateMember(activeOrgId!, member.id, { roleType: newType });
+      }}
+      className="text-[9px] font-black uppercase text-brand-yellow tracking-widest hover:underline bg-brand-yellow/10 px-2 py-1 rounded"
+    >
+      Akses
+    </button>
+
+    <button 
+      onClick={() => {
+        if (window.confirm(`Keluarkan ${member.name} dari kepanitiaan/workspace ini?`)) {
+          removeMember(activeOrgId!, member.id);
+        }
+      }}
+      className="text-[9px] font-black uppercase text-red-500 tracking-widest hover:underline bg-red-500/10 px-2 py-1 rounded"
+    >
+      Kick
+    </button>
+  </div>
+)}
                     </div>
                     
                     <div className="flex items-center justify-center sm:justify-start gap-2">

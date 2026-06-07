@@ -22,7 +22,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Sparkles
+  Sparkles,
+  Edit2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -155,6 +156,7 @@ export const TasksPage: React.FC = () => {
     activeOrgId, 
     tasks, 
     addTask, 
+    updateTask,
     deleteTask, 
     updateTaskStatus, 
     getOrgWorkload, 
@@ -164,6 +166,7 @@ export const TasksPage: React.FC = () => {
   } = useApp();
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [isAdding, setIsAdding] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   
   // Search and Filter States
@@ -182,7 +185,10 @@ export const TasksPage: React.FC = () => {
 
   const activeOrg = organizations.find(o => o.id === activeOrgId);
   const currentUserMember = activeOrg?.members.find(m => m.userId === currentUser?.id);
-  const isPrivileged = !!currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
+  const isPrivileged = !!currentUserMember && (
+    ['owner','leader','coordinator'].includes(currentUserMember.roleType) ||
+    /pemimpin|ketua|leader|coordinator|manager|pic/i.test(currentUserMember.role)
+  );
 
   if (!activeOrg) return null;
 
@@ -210,17 +216,49 @@ export const TasksPage: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.name && formData.assigneeId) {
-      addTask({ ...formData, orgId: activeOrgId! });
+      if (editingTaskId) {
+        updateTask(editingTaskId, { ...formData });
+      } else {
+        addTask({ ...formData, orgId: activeOrgId! });
+      }
       setFormData({
         name: '',
         description: '',
-        deadline: new Date().toISOString().split('T')[0],
+        deadline: new Date().toISOString().slice(0, 16),
         difficulty: 'medium',
         category: 'General',
         assigneeId: '',
       });
       setIsAdding(false);
+      setEditingTaskId(null);
     }
+  };
+
+  const handleEdit = (task: Task, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setFormData({
+      name: task.name,
+      description: task.description || '',
+      deadline: task.deadline,
+      difficulty: task.difficulty,
+      category: task.category || 'General',
+      assigneeId: task.assigneeId,
+    });
+    setEditingTaskId(task.id);
+    setIsAdding(true);
+  };
+
+  const handleCancel = () => {
+    setIsAdding(false);
+    setEditingTaskId(null);
+    setFormData({
+      name: '',
+      description: '',
+      deadline: new Date().toISOString().slice(0, 16),
+      difficulty: 'medium',
+      category: 'General',
+      assigneeId: '',
+    });
   };
 
   const categories = [
@@ -274,7 +312,13 @@ export const TasksPage: React.FC = () => {
         </div>
         
         <button 
-          onClick={() => setIsAdding(!isAdding)}
+          onClick={() => {
+            if (isAdding) {
+              handleCancel();
+            } else {
+              setIsAdding(true);
+            }
+          }}
           className="flex items-center justify-center gap-3 bg-brand-dark hover:bg-brand-dark/95 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-[0.2em] text-xs shadow-2xl shadow-brand-dark/20 transition-all active:scale-95"
         >
           {isAdding ? 'Batal' : '+ Tugas Baru'}
@@ -334,8 +378,8 @@ export const TasksPage: React.FC = () => {
           >
             <div className="flex items-center justify-between border-b border-gray-50 pb-8">
               <div>
-                <h2 className="text-2xl font-black text-brand-dark uppercase tracking-tight">New Task</h2>
-                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">Fill in the details below</p>
+                <h2 className="text-2xl font-black text-brand-dark uppercase tracking-tight">{editingTaskId ? 'Edit Task' : 'New Task'}</h2>
+                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">{editingTaskId ? 'Update the details below' : 'Fill in the details below'}</p>
               </div>
               {suggestedMember && (
                 <div className="flex items-center gap-3 bg-brand-teal/5 text-brand-teal px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] border border-brand-teal/10">
@@ -441,7 +485,7 @@ export const TasksPage: React.FC = () => {
                 <div className="flex justify-end gap-4 pt-6 border-t border-gray-50">
                   <button 
                     type="button" 
-                    onClick={() => setIsAdding(false)} 
+                    onClick={handleCancel} 
                     className="px-8 py-5 font-black uppercase text-[10px] tracking-widest text-gray-400 hover:text-brand-dark transition-colors"
                   >
                     Cancel
@@ -450,7 +494,7 @@ export const TasksPage: React.FC = () => {
                     type="submit" 
                     className="bg-brand-dark hover:bg-black text-white px-12 py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[10px] shadow-2xl shadow-brand-dark/20 transition-all active:scale-95"
                   >
-                    Create Task
+                    {editingTaskId ? 'Update Task' : 'Create Task'}
                   </button>
                 </div>
               </div>
@@ -496,26 +540,34 @@ export const TasksPage: React.FC = () => {
                           )}
                         </div>
                         <div className="flex items-center gap-1">
+                          {isPrivileged && (
+                            <>
+                              <button 
+                                onClick={(e) => handleEdit(task, e)}
+                                className="text-gray-300 hover:text-brand-yellow transition-colors p-2.5"
+                              >
+                                <Edit2 className="w-5 h-5" />
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteTask(task.id);
+                                }}
+                                className="text-gray-300 hover:text-red-500 transition-colors p-2.5"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </button>
+                            </>
+                          )}
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedTaskId(task.id);
                             }}
-                            className="text-brand-teal hover:bg-brand-teal/10 p-2 rounded-xl transition-all"
+                            className="text-brand-teal hover:bg-brand-teal/10 p-2.5 rounded-xl transition-all"
                           >
-                            <ChevronRight className="w-4 h-4" />
+                            <ChevronRight className="w-5 h-5" />
                           </button>
-                          {isPrivileged && (
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteTask(task.id);
-                              }}
-                              className="text-gray-200 hover:text-red-500 transition-colors p-2"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
                         </div>
                       </div>
 
@@ -629,7 +681,8 @@ export const TasksPage: React.FC = () => {
                             <motion.div
                               layoutId={task.id}
                               key={task.id}
-                              className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group relative border-l-4 border-l-brand-teal"
+                              onClick={() => setSelectedTaskId(task.id)}
+                              className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group relative border-l-4 border-l-brand-teal cursor-pointer"
                             >
                               <div className="flex justify-between items-start mb-4">
                                 <span className={cn(
@@ -639,24 +692,48 @@ export const TasksPage: React.FC = () => {
                                   {task.difficulty}
                                 </span>
                                 
-                                <div className="relative group/menu">
-                                  <button className="text-gray-200 hover:text-brand-teal transition-colors">
-                                    <ChevronRight className="w-4 h-4" />
-                                  </button>
-                                  <div className="absolute right-0 top-6 w-48 bg-white border border-gray-100 rounded-2xl shadow-2xl opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all z-20 overflow-hidden divide-y divide-gray-50">
-                                    {columns.filter(c => {
-                                      if (c.id === task.status) return false;
-                                      if (c.id === 'done') return false; // Enforce approval
-                                      return true;
-                                    }).map(c => (
-                                      <button
-                                        key={c.id}
-                                        onClick={() => updateTaskStatus(task.id, c.id)}
-                                        className="w-full text-left px-5 py-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-dark hover:bg-brand-grey transition-colors"
+                                <div className="flex items-center gap-1.5">
+                                  {isPrivileged && (
+                                    <>
+                                      <button 
+                                        onClick={(e) => handleEdit(task, e)}
+                                        className="text-gray-300 hover:text-brand-yellow transition-colors p-1.5"
                                       >
-                                        {c.label}
+                                        <Edit2 className="w-4 h-4" />
                                       </button>
-                                    ))}
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          deleteTask(task.id);
+                                        }}
+                                        className="text-gray-300 hover:text-red-500 transition-colors p-1.5"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </>
+                                  )}
+                                  <div className="relative group/menu">
+                                    <button onClick={e => e.stopPropagation()} className="text-gray-300 hover:text-brand-teal transition-colors p-1.5">
+                                      <ChevronRight className="w-5 h-5" />
+                                    </button>
+                                    <div className="absolute right-0 top-6 w-48 bg-white border border-gray-100 rounded-2xl shadow-2xl opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all z-20 overflow-hidden divide-y divide-gray-50">
+                                      {columns.filter(c => {
+                                        if (c.id === task.status) return false;
+                                        if (c.id === 'done') return false; // Enforce approval
+                                        return true;
+                                      }).map(c => (
+                                        <button
+                                          key={c.id}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            updateTaskStatus(task.id, c.id);
+                                          }}
+                                          className="w-full text-left px-5 py-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-dark hover:bg-brand-grey transition-colors"
+                                        >
+                                          {c.label}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -764,7 +841,10 @@ const TaskDetailModal: React.FC<{
   const [attachmentForm, setAttachmentForm] = useState({ name: '', url: '', type: 'link' as 'link' | 'file' });
   const { currentUser, updateAttachment, updateTaskStatus } = useApp();
   const currentUserMember = activeOrg.members?.find((m: any) => m.userId === currentUser?.id);
-  const isPrivileged = !!currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
+  const isPrivileged = !!currentUserMember && (
+    ['owner','leader','coordinator'].includes(currentUserMember.roleType) ||
+    /pemimpin|ketua|leader|coordinator|manager|pic/i.test(currentUserMember.role)
+  );
 
   if (!task) return null;
 

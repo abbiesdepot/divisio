@@ -3,6 +3,7 @@ import { AppState, Organization, Task, Member, User, Attachment, RoleType, TaskC
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+
 interface AppContextType extends AppState {
   setActiveOrg: (id: string) => void;
   addOrganization: (name: string) => void;
@@ -10,8 +11,9 @@ interface AppContextType extends AppState {
   addTask: (task: Omit<Task, 'id' | 'status' | 'comments' | 'attachments'>) => void;
   updateTaskStatus: (taskId: string, status: Task['status']) => void;
   deleteTask: (taskId: string) => void;
-  addComment: (taskId: string, text: string) => void;
-  addAttachment: (taskId: string, attachment: Omit<Attachment, 'id' | 'createdAt'>) => void;
+  updateTask: (taskId: string, updates: Partial<Task>) => void; // TAMBAHKAN INI
+  updateMember: (orgId: string, memberId: string, updates: Partial<Member>) => void; // TAMBAHKAN INI
+  addComment: (taskId: string, text: string) => void;addAttachment: (taskId: string, attachment: Omit<Attachment, 'id' | 'createdAt'>) => void;
   updateAttachment: (taskId: string, attachmentId: string, updates: Partial<Attachment>) => void;
   getOrgWorkload: (orgId: string) => Record<string, number>;
   getAIRecommendations: (taskId: string) => Promise<Recommendation[]>;
@@ -24,6 +26,8 @@ interface AppContextType extends AppState {
   logout: () => void;
   joinOrganization: (joinCodeOrOrgId: string, role: string, division: string, roleType?: RoleType) => boolean;
   chargeAdditionalMember: (orgId: string) => boolean;
+  
+
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -351,7 +355,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const org = s.organizations.find(o => o.id === task.orgId || o.id === s.activeOrgId);
       const currentUserMember = org && s.currentUser ? org.members.find(m => m.userId === s.currentUser!.id) : undefined;
-      const isPrivileged = currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
+      const isPrivileged = currentUserMember && (
+        ['owner','leader','coordinator'].includes(currentUserMember.roleType) ||
+        /pemimpin|ketua|leader|coordinator|manager|pic/i.test(currentUserMember.role)
+      );
 
       // Enforce approval flow: non-privileged users cannot set to 'done' directly
       let newStatus = status;
@@ -364,6 +371,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tasks: s.tasks.map(t => (t.id === taskId ? { ...t, status: newStatus } : t)),
       };
     });
+  };
+  const updateTask = (taskId: string, updates: Partial<Task>) => {
+    setState(s => ({
+      ...s,
+      tasks: s.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t)
+    }));
+  };
+
+  const updateMember = (orgId: string, memberId: string, updates: Partial<Member>) => {
+    setState(s => ({
+      ...s,
+      organizations: s.organizations.map(org =>
+        org.id === orgId ? {
+          ...org,
+          members: org.members.map(m => m.id === memberId ? { ...m, ...updates } : m)
+        } : org
+      ),
+    }));
   };
 
   const updateMemberRole = (orgId: string, memberId: string, newRole: string) => {
@@ -641,6 +666,8 @@ const callAIEndpoint = async <T,>(path: string, payload: object, fallback: T): P
         updateMemberRole,
         removeMember,
         chargeAdditionalMember,
+        updateTask,
+        updateMember,
       }}
     >
       {children}
