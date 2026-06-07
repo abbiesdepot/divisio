@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AppState, Organization, Task, Member, User, Attachment, RoleType, TaskComment, Recommendation } from './types';
+
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
 interface AppContextType extends AppState {
   setActiveOrg: (id: string) => void;
   addOrganization: (name: string) => void;
@@ -26,6 +29,8 @@ interface AppContextType extends AppState {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 const STORAGE_KEY = 'teamsync_data_v4'; // shared data
 const SESSION_KEY = 'teamsync_session_v4'; // per-window session
+
+const genAI = new GoogleGenerativeAI(process.env.VITE_GEMINI_API_KEY || "");
 
   const generateJoinCode = (name: string) => {
     const base = name
@@ -430,6 +435,31 @@ const callAIEndpoint = async <T,>(path: string, payload: object, fallback: T): P
     }
   };
 
+  // HELPER: Pembersih format AI agar JSON.parse tidak pernah crash
+  const parseAIJSON = (text: string) => {
+    try {
+      let cleanText = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
+      const firstBrace = cleanText.indexOf('{');
+      const firstBracket = cleanText.indexOf('[');
+      let startIndex = 0;
+      if (firstBrace !== -1 && firstBracket !== -1) startIndex = Math.min(firstBrace, firstBracket);
+      else if (firstBrace !== -1) startIndex = firstBrace;
+      else if (firstBracket !== -1) startIndex = firstBracket;
+
+      const lastBrace = cleanText.lastIndexOf('}');
+      const lastBracket = cleanText.lastIndexOf(']');
+      let endIndex = cleanText.length;
+      if (lastBrace !== -1 && lastBracket !== -1) endIndex = Math.max(lastBrace, lastBracket) + 1;
+      else if (lastBrace !== -1) endIndex = lastBrace + 1;
+      else if (lastBracket !== -1) endIndex = lastBracket + 1;
+
+      return JSON.parse(cleanText.substring(startIndex, endIndex));
+    } catch (err) {
+      console.error("Gagal Parsing AI JSON. Teks asli:", text);
+      throw new Error("Format AI tidak valid.");
+    }
+  };
+
   const getAIRecommendations = async (taskOrId: string | Partial<Task>) => {
     let task: Partial<Task> | undefined;
     if (typeof taskOrId === 'string') {
@@ -441,11 +471,39 @@ const callAIEndpoint = async <T,>(path: string, payload: object, fallback: T): P
     const org = state.organizations.find(o => o.id === (task?.orgId || state.activeOrgId));
     if (!task || !org) return [];
 
-    return await callAIEndpoint<Recommendation[]>('/api/recommendations', {
-      task,
-      members: org.members,
-      history: state.tasks,
-    }, []);
+    try {
+      const apiKey = process.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) throw new Error("API Key Hilang di file .env");
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-2.5-flash",
+        generationConfig: { responseMimeType: "application/json" }
+      });
+      const currentWorkload = getOrgWorkload(org.id);
+      
+      const membersData = org.members.map(m => ({
+        id: m.id,
+        nama: m.name,
+        keahlian: m.expertise || m.role,
+        beban_kerja: currentWorkload[m.id] || 0
+      }));
+
+      const prompt = `
+        Tugas baru: ${task.name} 
+        Kesulitan: ${task.difficulty || 'medium'}
+        Daftar Anggota: ${JSON.stringify(membersData)}
+        
+        Pilih 3 anggota paling cocok berdasarkan keahlian dan beban kerja (prioritaskan beban terendah).
+        OUTPUT WAJIB ARRAY JSON MURNI TANPA MARKDOWN: 
+        [{"memberId": "id_anggota", "memberName": "nama_anggota", "score": 90, "explanation": "alasan spesifik 1 kalimat"}]
+      `;
+
+      const result = await model.generateContent(prompt);
+      return parseAIJSON(result.response.text());
+    } catch (error: any) {
+      console.error("AI Error (Rekomen):", error);
+      return [];
+    }
   };
 
   const getAIWorkloadInsights = async (orgId: string) => {
@@ -453,12 +511,48 @@ const callAIEndpoint = async <T,>(path: string, payload: object, fallback: T): P
     const orgTasks = state.tasks.filter(t => t.orgId === orgId && t.status !== 'done');
     if (!org) return { overallStatus: 'Unknown', insights: [] };
 
-    return await callAIEndpoint<{ overallStatus: string; insights: any[] }>('/api/workload-insights', {
-      members: org.members,
-      tasks: orgTasks,
-    }, { overallStatus: 'Unknown', insights: [] });
+    try {
+      const apiKey = process.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) throw new Error("API Key Hilang di file .env");
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-2.5-flash",
+        generationConfig: { responseMimeType: "application/json" }
+      });
+      const currentWorkload = getOrgWorkload(org.id);
+      
+      const membersData = org.members.map(m => ({
+        id: m.id,
+        nama: m.name,
+        poin_beban: currentWorkload[m.id] || 0
+      }));
+
+      const prompt = `
+        Daftar Beban Kerja: ${JSON.stringify(membersData)}
+        Total Tugas Aktif: ${orgTasks.length}
+        
+        Evaluasi apakah tim ini sehat, ada yang overload, atau terlalu santai.
+        OUTPUT WAJIB OBJECT JSON MURNI TANPA MARKDOWN:
+        {
+          "overallStatus": "Sehat / Kritis / Perlu Perhatian",
+          "insights": [
+            {"memberId": "id_anggota", "status": "Normal / Sibuk / Santai", "message": "pesan evaluasi singkat"}
+          ]
+        }
+      `;
+
+      const result = await model.generateContent(prompt);
+      return parseAIJSON(result.response.text());
+    } catch (error: any) {
+      console.error("AI Error (Workload):", error);
+      return { 
+        overallStatus: 'Error API', 
+        insights: [{"memberId": "error", "status": "Error", "message": error.message || "Gagal menghubungi Gemini."}] 
+      };
+    }
   };
 
+  
  
 
   const getOrgWorkload = (orgId: string) => {
