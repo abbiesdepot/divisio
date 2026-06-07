@@ -16,8 +16,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
-export const TeamManagement: React.FC = () => {
-  const { organizations, activeOrgId, getOrgWorkload, getAIWorkloadInsights, currentUser, updateMemberRole } = useApp();
+export const TeamManagement: React.FC<{ onNavigate?: (page: 'dashboard' | 'tasks' | 'team') => void }> = ({ onNavigate }) => {
+  const { organizations, activeOrgId, getOrgWorkload, getAIWorkloadInsights, currentUser, updateMemberRole, removeMember } = useApp();
   const activeOrg = organizations.find(o => o.id === activeOrgId);
   const [search, setSearch] = useState('');
   const [aiInsights, setAiInsights] = useState<{ overallStatus: string; insights: any[] } | null>(null);
@@ -26,6 +26,7 @@ export const TeamManagement: React.FC = () => {
   if (!activeOrg) return null;
 
   const currentUserMember = activeOrg.members.find(m => m.userId === currentUser?.id);
+  // Using isPrivileged instead of isLeader to allow coordinators/owners to edit as well
   const isPrivileged = !!currentUserMember && ['owner','leader','coordinator'].includes(currentUserMember.roleType);
 
   const workload = getOrgWorkload(activeOrgId!);
@@ -52,7 +53,6 @@ export const TeamManagement: React.FC = () => {
   };
 
   const getRoleWeight = (role: string) => {
-    // Try to find exact match or partial match
     const found = Object.entries(roleOrder).find(([key]) => role.toLowerCase().includes(key.toLowerCase()));
     return found ? found[1] : 99;
   };
@@ -71,17 +71,19 @@ export const TeamManagement: React.FC = () => {
           <h1 className="text-4xl font-black text-brand-dark uppercase tracking-tight">Kapasitas Tim</h1>
           <p className="text-gray-400 font-medium italic">Pantau distribusi tugas di <span className="text-brand-teal font-black uppercase text-xs tracking-widest">{activeOrg.name}</span></p>
           <div className="mt-2 flex items-center gap-3 text-[12px]">
-            {activeOrg.joinCode && (
+            {/* Note: Ensure 'joinCode' is added to the Organization interface in types.ts */}
+            {(activeOrg as any).joinCode && (
               <div className="flex items-center gap-2 text-gray-500">
                 <span className="font-black uppercase text-[10px]">Kode:</span>
-                <span className="bg-white border border-gray-100 px-2 py-1 rounded text-[12px]">{activeOrg.joinCode}</span>
-                <button onClick={() => navigator.clipboard?.writeText(activeOrg.joinCode)} className="px-2 py-1 bg-brand-teal text-white rounded text-[10px] font-black">Salin</button>
+                <span className="bg-white border border-gray-100 px-2 py-1 rounded text-[12px]">{(activeOrg as any).joinCode}</span>
+                <button onClick={() => navigator.clipboard?.writeText((activeOrg as any).joinCode)} className="px-2 py-1 bg-brand-teal text-white rounded text-[10px] font-black">Salin</button>
               </div>
             )}
-            {activeOrg.subscription && (
+            {/* Note: Ensure 'subscription' is added to the Organization interface in types.ts */}
+            {(activeOrg as any).subscription && (
               <div className="flex items-center gap-2 text-gray-500">
                 <span className="font-black uppercase text-[10px]">Tier:</span>
-                <span className="bg-white border border-gray-100 px-2 py-1 rounded text-[12px]">{activeOrg.subscription.tier}</span>
+                <span className="bg-white border border-gray-100 px-2 py-1 rounded text-[12px]">{(activeOrg as any).subscription.tier}</span>
               </div>
             )}
           </div>
@@ -152,9 +154,10 @@ export const TeamManagement: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {filteredMembers.map((member) => {
-          const loadScore = workload[member.id] || 0;
-          const percentage = Math.min((loadScore / 10) * 100, 100); // 10 points = 100% capacity
-          
+         const loadScore = workload[member.id] || 0;
+         const MAX_CAPACITY_POINTS = 40; 
+         const percentage = Math.min((loadScore / MAX_CAPACITY_POINTS) * 100, 100);
+         
           return (
             <motion.div 
               layout
@@ -162,7 +165,7 @@ export const TeamManagement: React.FC = () => {
               className="bg-white rounded-[2.5rem] border border-gray-100 p-8 hover:shadow-xl transition-all group flex flex-col sm:flex-row gap-8 items-center"
             >
               <div className="relative">
-                <div className="w-24 h-24 rounded-[2rem] bg-brand-grey flex items-center justify-center text-3xl font-black text-brand-dark border border-gray-50 shadow-inner group-hover:scale-105 transition-transform">
+                <div className="w-24 h-24 rounded-4xl bg-brand-grey flex items-center justify-center text-3xl font-black text-brand-dark border border-gray-50 shadow-inner group-hover:scale-105 transition-transform">
                   {member.name.charAt(0)}
                 </div>
                 <div className={cn(
@@ -174,32 +177,44 @@ export const TeamManagement: React.FC = () => {
               </div>
 
               <div className="flex-1 space-y-6 w-full text-center sm:text-left">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-xl font-black text-brand-dark uppercase tracking-tight leading-none mb-2">{member.name}</h3>
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between w-full">
+                      <h3 className="text-xl font-black text-brand-dark uppercase tracking-tight leading-none mb-2">{member.name}</h3>
+                      
+                      {/* LEADER CONTROLS */}
+                      {isPrivileged && member.userId !== currentUser?.id && (
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => {
+                              const newRole = prompt(`Masukkan peran baru untuk ${member.name}:`, member.role);
+                              if (newRole) updateMemberRole(activeOrgId!, member.id, newRole);
+                            }}
+                            className="text-[9px] font-black uppercase text-brand-teal tracking-widest hover:underline bg-brand-teal/10 px-2 py-1 rounded"
+                          >
+                            Edit
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (window.confirm(`Keluarkan ${member.name} dari workspace?`)) {
+                                removeMember(activeOrgId!, member.id);
+                              }
+                            }}
+                            className="text-[9px] font-black uppercase text-red-500 tracking-widest hover:underline bg-red-500/10 px-2 py-1 rounded"
+                          >
+                            Kick
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    
                     <div className="flex items-center justify-center sm:justify-start gap-2">
                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{member.role}</span>
                        <div className="w-1 h-1 bg-gray-200 rounded-full" />
                        <span className="text-[10px] font-black text-brand-teal uppercase tracking-widest">{member.division || 'Umum'}</span>
-                      {isPrivileged && (
-                        <select value={member.roleType} onChange={(e) => updateMemberRole(activeOrg.id, member.id, e.target.value as any)} className="ml-3 bg-white border border-gray-100 rounded px-2 py-1 text-[10px] font-black">
-                          <option value="owner">Owner</option>
-                          <option value="leader">Leader</option>
-                          <option value="coordinator">Coordinator</option>
-                          <option value="member">Member</option>
-                        </select>
-                      )}
                     </div>
-                  </div>
-                  <div className="flex flex-col items-center sm:items-end">
-                    <span className={cn(
-                      "text-2xl font-black tracking-tighter leading-none mb-1",
-                      percentage > 80 ? "text-red-500" : percentage > 40 ? "text-brand-dark" : "text-brand-teal"
-                    )}>{Math.round(percentage)}%</span>
-                    <span className="text-[9px] font-black uppercase text-gray-400 tracking-widest">Kapasitas Terisi</span>
-                  </div>
-                </div>
-
+                  </div> {/* FIX: Added missing closing div here */}
+</div>
                 <div className="space-y-3">
                   <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-gray-400">
                     <span>Workload Distribution</span>
@@ -224,9 +239,12 @@ export const TeamManagement: React.FC = () => {
                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">{loadScore} Poin</span>
                         </div>
                      </div>
-                     <button className="text-[9px] font-black uppercase text-brand-teal tracking-widest flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all hover:underline">
-                        Lihat Tugas <ChevronRight className="w-3 h-3" />
-                     </button>
+                     <button 
+  onClick={() => onNavigate?.('tasks')}
+  className="text-[9px] font-black uppercase text-brand-teal tracking-widest flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all hover:underline"
+>
+  Lihat Tugas <ChevronRight className="w-3 h-3" />
+</button>
                   </div>
                 </div>
               </div>
@@ -237,7 +255,7 @@ export const TeamManagement: React.FC = () => {
 
       {filteredMembers.length === 0 && (
         <div className="py-32 bg-white rounded-[3rem] border border-dashed border-gray-200 text-center space-y-6">
-          <div className="w-24 h-24 bg-brand-grey rounded-[2rem] flex items-center justify-center mx-auto border border-gray-100 shadow-inner">
+          <div className="w-24 h-24 bg-brand-grey rounded-4xl flex items-center justify-center mx-auto border border-gray-100 shadow-inner">
             <Users className="w-10 h-10 text-gray-200" />
           </div>
           <div className="space-y-2">

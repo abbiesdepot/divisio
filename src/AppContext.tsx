@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AppState, Organization, Task, Member, User, Attachment, RoleType, TaskComment, Recommendation } from './types';
-
 interface AppContextType extends AppState {
   setActiveOrg: (id: string) => void;
   addOrganization: (name: string) => void;
@@ -15,20 +14,27 @@ interface AppContextType extends AppState {
   getAIRecommendations: (taskId: string) => Promise<Recommendation[]>;
   getAIWorkloadInsights: (orgId: string) => Promise<{ overallStatus: string; insights: any[] }>;
   updateProfile: (updates: Partial<User>) => void;
-  register: (name: string, email: string, password: string) => void;
-  login: (email: string, password: string) => boolean;
+  updateMemberRole: (orgId: string, memberId: string, newRole: string) => void;
+  removeMember: (orgId: string, memberId: string) => void;
+  register: (name: string, email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   joinOrganization: (joinCodeOrOrgId: string, role: string, division: string, roleType?: RoleType) => boolean;
-  updateMemberRole: (orgId: string, memberId: string, roleType: RoleType) => void;
   chargeAdditionalMember: (orgId: string) => boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
-
-const STORAGE_KEY = 'teamsync_data_v4'; // Bump version
+const STORAGE_KEY = 'teamsync_data_v4'; // shared data
+const SESSION_KEY = 'teamsync_session_v4'; // per-window session
 
   const generateJoinCode = (name: string) => {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 12) + '-' + Math.random().toString(36).slice(2,6);
+    const base = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 20);
+
+    return base || `team-${Math.random().toString(36).slice(2, 8)}`;
   };
 
   const getSubscriptionDefaults = (tier: 'free' | 'silver' | 'gold' | 'diamond') => {
@@ -41,26 +47,30 @@ const STORAGE_KEY = 'teamsync_data_v4'; // Bump version
   };
 
   const INITIAL_DATA: AppState = {
-  users: [],
+  users: [
+    { id: 'd1', name: 'Budi Santoso', email: 'budi@divisio.com', password: 'password123' },
+    { id: 'd2', name: 'Ani Wijaya', email: 'ani@divisio.com', password: 'password123' },
+    { id: 'd3', name: 'Siti Aminah', email: 'siti@divisio.com', password: 'password123' },
+  ],
   currentUser: null,
   organizations: [
     {
       id: 'default-org',
       name: 'Workspace Global',
-      memberEmails: [], // Nobody in by default, need to join or be created
+      memberEmails: ['budi@divisio.com', 'ani@divisio.com', 'siti@divisio.com'],
       joinCode: 'global-001',
       subscription: getSubscriptionDefaults('free'),
       members: [
-        { id: 'd1', name: 'Budi Santoso', role: 'Pemimpin Tim', roleType: 'leader', division: 'Desain', orgId: 'default-org', expertise: 'UI/UX Design', skills: ['Figma', 'Adobe XD', 'Prototyping', 'Creative Direction'] },
-        { id: 'd2', name: 'Ani Wijaya', role: 'Pengembang Senior', roleType: 'member', division: 'Teknik', orgId: 'default-org', expertise: 'Fullstack Development', skills: ['React', 'TypeScript', 'Node.js', 'System Architecture'] },
-        { id: 'd3', name: 'Siti Aminah', role: 'Ketua Pemasaran', roleType: 'member', division: 'Pemasaran', orgId: 'default-org', expertise: 'Growth Marketing', skills: ['SEO', 'Content Strategy', 'Social Media', 'Data Analytics'] },
+        { id: 'd1', userId: 'd1', name: 'Budi Santoso', role: 'Pemimpin Tim', roleType: 'leader', division: 'Desain', orgId: 'default-org', expertise: 'UI/UX Design', skills: ['Figma', 'Adobe XD', 'Prototyping', 'Creative Direction'] },
+        { id: 'd2', userId: 'd2', name: 'Ani Wijaya', role: 'Pengembang Senior', roleType: 'member', division: 'Teknik', orgId: 'default-org', expertise: 'Fullstack Development', skills: ['React', 'TypeScript', 'Node.js', 'System Architecture'] },
+        { id: 'd3', userId: 'd3', name: 'Siti Aminah', role: 'Ketua Pemasaran', roleType: 'member', division: 'Pemasaran', orgId: 'default-org', expertise: 'Growth Marketing', skills: ['SEO', 'Content Strategy', 'Social Media', 'Data Analytics'] },
         { id: 'd4', name: 'Rudi Hermawan', role: 'Penasihat Hukum', roleType: 'member', division: 'Legal', orgId: 'default-org', expertise: 'Legal Documentation', skills: ['Legal Writing', 'Compliance', 'Risk Assessment', 'Contracts'] },
-        { id: 'd5', name: 'Dewi Lestari', role: 'Asisten Legal', roleType: 'member', division: 'Legal', orgId: 'default-org', expertise: 'Administrative Legal', skills: ['Documentation', 'Research', 'Case Archiving'] },
-        { id: 'd6', name: 'Bambang Subiakto', role: 'Sekretaris', roleType: 'leader', division: 'Manajemen', orgId: 'default-org', expertise: 'Event Planning', skills: ['Scheduling', 'Event Management', 'Public Relations', 'Logistics'] },
-        { id: 'd7', name: 'Indah Permata', role: 'Bendahara', roleType: 'leader', division: 'Manajemen', orgId: 'default-org', expertise: 'Finance Control', skills: ['Budgeting', 'Financial Reporting', 'Excel', 'Taxes'] },
-        { id: 'd8', name: 'Lukman Hakim', role: 'Koordinator Keuangan', roleType: 'member', division: 'Keuangan', orgId: 'default-org', expertise: 'Accounting', skills: ['Bookkeeping', 'Invoicing', 'Expense Tracking'] },
-        { id: 'd9', name: 'Siska Putri', role: 'PIC Operasional', roleType: 'leader', division: 'Manajemen', orgId: 'default-org', expertise: 'Operational Management', skills: ['Workflow Optimization', 'Quality Control', 'Team Coordination'] },
-        { id: 'd10', name: 'Eko Prasetyo', role: 'Multimedia Specialist', roleType: 'member', division: 'Media', orgId: 'default-org', expertise: 'Photography & Video', skills: ['Adobe Premiere', 'After Effects', 'Studio Lighting', 'Video Editing'] },
+        { id: 'd5', userId: 'd5', name: 'Dewi Lestari', role: 'Asisten Legal', roleType: 'member', division: 'Legal', orgId: 'default-org', expertise: 'Administrative Legal', skills: ['Documentation', 'Research', 'Case Archiving'] },
+        { id: 'd6', userId: 'd6', name: 'Bambang Subiakto', role: 'Sekretaris', roleType: 'leader', division: 'Manajemen', orgId: 'default-org', expertise: 'Event Planning', skills: ['Scheduling', 'Event Management', 'Public Relations', 'Logistics'] },
+        { id: 'd7', userId: 'd7', name: 'Indah Permata', role: 'Bendahara', roleType: 'leader', division: 'Manajemen', orgId: 'default-org', expertise: 'Finance Control', skills: ['Budgeting', 'Financial Reporting', 'Excel', 'Taxes'] },
+        { id: 'd8', userId: 'd8', name: 'Lukman Hakim', role: 'Koordinator Keuangan', roleType: 'member', division: 'Keuangan', orgId: 'default-org', expertise: 'Accounting', skills: ['Bookkeeping', 'Invoicing', 'Expense Tracking'] },
+        { id: 'd9', userId: 'd9', name: 'Siska Putri', role: 'PIC Operasional', roleType: 'leader', division: 'Manajemen', orgId: 'default-org', expertise: 'Operational Management', skills: ['Workflow Optimization', 'Quality Control', 'Team Coordination'] },
+        { id: 'd10', userId: 'd10', name: 'Eko Prasetyo', role: 'Multimedia Specialist', roleType: 'member', division: 'Media', orgId: 'default-org', expertise: 'Photography & Video', skills: ['Adobe Premiere', 'After Effects', 'Studio Lighting', 'Video Editing'] },
       ],
     },
   ],
@@ -71,49 +81,118 @@ const STORAGE_KEY = 'teamsync_data_v4'; // Bump version
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
+    const sessionValue = sessionStorage.getItem(SESSION_KEY);
+
+    let shared: Partial<AppState> = {};
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        // Ensure dummy data exists even if we have saved data (migration)
-        if (!parsed.organizations.find((o: any) => o.id === 'default-org')) {
-          parsed.organizations.push(INITIAL_DATA.organizations[0]);
+        const parsed = JSON.parse(saved) as AppState;
+        shared = parsed;
+        if (!parsed.organizations?.find((o: any) => o.id === 'default-org')) {
+          shared.organizations = [...(parsed.organizations || []), INITIAL_DATA.organizations[0]];
         }
-        return parsed;
       } catch (e) {
-        return INITIAL_DATA;
+        shared = { organizations: INITIAL_DATA.organizations, tasks: INITIAL_DATA.tasks, users: INITIAL_DATA.users };
+      }
+    } else {
+      shared = { organizations: INITIAL_DATA.organizations, tasks: INITIAL_DATA.tasks, users: INITIAL_DATA.users };
+    }
+
+    let session: Partial<AppState> = {};
+    if (sessionValue) {
+      try {
+        session = JSON.parse(sessionValue) as Partial<AppState>;
+      } catch (e) {
+        session = {};
       }
     }
-    return INITIAL_DATA;
+
+    return {
+      ...INITIAL_DATA,
+      users: shared.users ?? INITIAL_DATA.users,
+      organizations: shared.organizations ?? INITIAL_DATA.organizations,
+      tasks: shared.tasks ?? INITIAL_DATA.tasks,
+      currentUser: session.currentUser ?? null,
+      activeOrgId: session.activeOrgId ?? null,
+    };
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    const sharedState = {
+      users: state.users,
+      organizations: state.organizations,
+      tasks: state.tasks,
+      // Do not store currentUser or activeOrgId globally
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sharedState));
+  }, [state.organizations, state.tasks, state.users]);
 
-  const register = (name: string, email: string, password: string) => {
+  useEffect(() => {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+      currentUser: state.currentUser,
+      activeOrgId: state.activeOrgId,
+    }));
+  }, [state.currentUser, state.activeOrgId]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue) as Partial<AppState>;
+          setState(s => ({
+            ...s,
+            users: parsed.users ?? s.users,
+            organizations: parsed.organizations ?? s.organizations,
+            tasks: parsed.tasks ?? s.tasks,
+          }));
+        } catch (error) {
+          console.error('Failed to sync state across windows:', error);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const register = async (name: string, email: string, password: string) => {
+    // Local registration: store in app state so login works without a backend.
+    if (state.users.some(user => user.email === email)) {
+      return false;
+    }
+
     const newUser: User = {
       id: crypto.randomUUID(),
       name,
       email,
       password,
     };
+
     setState(s => ({
       ...s,
       users: [...s.users, newUser],
-      currentUser: newUser,
-      activeOrgId: null, // New user has no orgs yet
+      currentUser: { ...newUser, password: undefined },
+      activeOrgId: null,
     }));
+
+    return true;
   };
 
-  const login = (email: string, password: string) => {
+  const login = async (email: string, password: string) => {
+    // Local login using stored users in application state.
     const user = state.users.find(u => u.email === email && u.password === password);
-    if (user) {
-      // Find first org for this user
-      const firstOrg = state.organizations.find(o => o.memberEmails.includes(email));
-      setState(s => ({ ...s, currentUser: user, activeOrgId: firstOrg?.id || null }));
-      return true;
+    if (!user) {
+      return false;
     }
-    return false;
+
+    const membershipOrg = state.organizations.find(org => org.memberEmails.includes(email) || org.members.some(member => member.userId === user.id));
+    setState(s => ({
+      ...s,
+      currentUser: { ...user, password: undefined },
+      activeOrgId: membershipOrg ? membershipOrg.id : null,
+    }));
+
+    return true;
   };
 
   const logout = () => {
@@ -121,17 +200,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const joinOrganization = (joinCodeOrOrgId: string, role: string, division: string, roleType: RoleType = 'member') => {
-    const org = state.organizations.find(o => o.id === joinCodeOrOrgId || o.joinCode === joinCodeOrOrgId);
+    const normalizedKey = joinCodeOrOrgId.trim().toLowerCase();
+    const org = state.organizations.find(o =>
+      o.id === joinCodeOrOrgId ||
+      o.joinCode?.trim().toLowerCase() === normalizedKey
+    );
     if (org && state.currentUser) {
       if (org.memberEmails.includes(state.currentUser.email)) {
         setState(s => ({ ...s, activeOrgId: org.id }));
         return true;
       }
 
-      // Enforce member limit based on subscription
       const max = org.subscription?.maxMembers ?? 20;
       if (org.members.length >= max) {
-        // Exceeded free tier; caller should charge or block
         return false;
       }
 
@@ -280,10 +361,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const updateMemberRole = (orgId: string, memberId: string, roleType: RoleType) => {
+  const updateMemberRole = (orgId: string, memberId: string, newRole: string) => {
     setState(s => ({
       ...s,
-      organizations: s.organizations.map(o => o.id === orgId ? { ...o, members: o.members.map(m => m.id === memberId ? { ...m, roleType } : m) } : o)
+      organizations: s.organizations.map(org =>
+        org.id === orgId ? {
+          ...org,
+          members: org.members.map(m => m.id === memberId ? { ...m, role: newRole } : m)
+        } : org
+      ),
+    }));
+  };
+
+  const removeMember = (orgId: string, memberId: string) => {
+    setState(s => ({
+      ...s,
+      organizations: s.organizations.map(org =>
+        org.id === orgId ? {
+          ...org,
+          members: org.members.filter(m => m.id !== memberId),
+          // Note: If you want to also remove their email from memberEmails, you'd filter it here too.
+        } : org
+      ),
     }));
   };
 
@@ -310,9 +409,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
+const callAIEndpoint = async <T,>(path: string, payload: object, fallback: T): Promise<T> => {
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('AI endpoint error', path, response.status, errorText);
+        return fallback;
+      }
+
+      return (await response.json()) as T;
+    } catch (error) {
+      console.error('AI fetch failed:', error);
+      return fallback;
+    }
+  };
+
   const getAIRecommendations = async (taskOrId: string | Partial<Task>) => {
     let task: Partial<Task> | undefined;
-    
     if (typeof taskOrId === 'string') {
       task = state.tasks.find(t => t.id === taskOrId);
     } else {
@@ -322,64 +441,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const org = state.organizations.find(o => o.id === (task?.orgId || state.activeOrgId));
     if (!task || !org) return [];
 
-    try {
-      const response = await fetch('/api/recommendations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task: {
-            name: task.name,
-            description: task.description,
-            category: task.category,
-            difficulty: task.difficulty,
-            deadline: task.deadline
-          },
-          members: org.members,
-          history: state.tasks.filter(t => t.orgId === org.id && t.status === 'done').slice(-5)
-        })
-      });
-      return await response.json();
-    } catch (error) {
-      console.error("Failed to get AI recommendations", error);
-      return [];
-    }
+    return await callAIEndpoint<Recommendation[]>('/api/recommendations', {
+      task,
+      members: org.members,
+      history: state.tasks,
+    }, []);
   };
 
   const getAIWorkloadInsights = async (orgId: string) => {
     const org = state.organizations.find(o => o.id === orgId);
-    const orgTasks = state.tasks.filter(t => t.orgId === orgId);
+    const orgTasks = state.tasks.filter(t => t.orgId === orgId && t.status !== 'done');
     if (!org) return { overallStatus: 'Unknown', insights: [] };
 
-    try {
-      const response = await fetch('/api/workload-insights', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          members: org.members,
-          tasks: orgTasks
-        })
-      });
-      return await response.json();
-    } catch (error) {
-      console.error("Failed to get AI workload insights", error);
-      return { overallStatus: 'Error', insights: [] };
-    }
+    return await callAIEndpoint<{ overallStatus: string; insights: any[] }>('/api/workload-insights', {
+      members: org.members,
+      tasks: orgTasks,
+    }, { overallStatus: 'Unknown', insights: [] });
   };
+
+ 
 
   const getOrgWorkload = (orgId: string) => {
     const workloadMap: Record<string, number> = {};
-    const orgTasks = state.tasks.filter(t => t.orgId === orgId && t.status !== 'done');
-    
-    // Total Capacity logic: 10 points = 100% workload for estimation purposes
+    const orgTasks = state.tasks.filter(t => t.orgId === orgId && (t.status === 'in_progress' || t.status === 'not_started'));
     orgTasks.forEach(t => {
+      // FIX: Cegah tugas kosong agar tidak merusak sistem Workload
+      if (!t.assigneeId) return; 
+
       let points = t.difficulty === 'easy' ? 2 : t.difficulty === 'medium' ? 5 : 8;
       
-      // Deadline pressure factor
       if (t.deadline) {
         const now = new Date();
         const due = new Date(t.deadline);
         const diffDays = (due.getTime() - now.getTime()) / (1000 * 3600 * 24);
-        if (diffDays < 1) points *= 1.5; // Urgent
+        if (diffDays < 1) points *= 1.5; 
         else if (diffDays < 3) points *= 1.2;
       }
 
@@ -409,6 +504,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteTask,
         addComment,
         addAttachment,
+        updateAttachment,
         getOrgWorkload,
         getAIRecommendations,
         getAIWorkloadInsights,
@@ -418,6 +514,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         logout,
         joinOrganization,
         updateMemberRole,
+        removeMember,
         chargeAdditionalMember,
       }}
     >

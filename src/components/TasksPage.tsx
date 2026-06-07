@@ -59,8 +59,7 @@ const AIRecommendations: React.FC<{
     }
   }, [taskId]);
 
-  const canAnalyze = isCreating ? (newTaskData?.name?.length > 3 && newTaskData?.description?.length > 5) : true;
-
+ const canAnalyze = isCreating ? (newTaskData?.name?.length > 3) : true;
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between">
@@ -217,6 +216,7 @@ export const TasksPage: React.FC = () => {
         description: '',
         deadline: new Date().toISOString().split('T')[0],
         difficulty: 'medium',
+        category: 'General',
         assigneeId: '',
       });
       setIsAdding(false);

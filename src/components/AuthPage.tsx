@@ -15,21 +15,25 @@ export const AuthPage: React.FC = () => {
     password: '',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  // src/components/AuthPage.tsx
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); 
+    
     if (isLogin) {
-      const success = login(formData.email, formData.password);
+      // FIX: Gunakan formData.email dan formData.password
+      const success = await login(formData.email, formData.password);
       if (!success) {
-        setError('Kredensial tidak valid. Periksa inputan Anda.');
+        setError('Email atau password salah');
       }
     } else {
-      if (!formData.name || !formData.email || !formData.password) {
-        setError('Semua kolom wajib diisi.');
-        return;
+      if (!formData.name) return setError('Nama harus diisi');
+      // FIX: Gunakan formData
+      const success = await register(formData.name, formData.email, formData.password);
+      if (!success) {
+        setError('Gagal mendaftar. Email mungkin sudah digunakan.');
       }
-      register(formData.name, formData.email, formData.password);
     }
   };
 

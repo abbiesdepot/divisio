@@ -21,8 +21,8 @@ function AppContent() {
     switch (activePage) {
       case 'dashboard':
         return <Dashboard onNavigate={setActivePage} />;
-      case 'team':
-        return <TeamManagement />;
+    case 'team':
+  return <TeamManagement onNavigate={setActivePage} />;
       case 'tasks':
         return <TasksPage />;
       case 'profile':

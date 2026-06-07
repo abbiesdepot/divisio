@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+// prisma/schema.prisma
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(uuid())
+  name       String
+  email      String   @unique
+  password   String   
+  skills     String?  // Menyimpan data array sebagai string untuk SQLite
+  expertise  String?  // Untuk fitur AI Profile
+  experience String?  // Untuk fitur AI Profile
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  memberships Member[]
+  comments    TaskComment[]
+}
+
+model Organization {
+  id           String    @id @default(uuid())
+  name         String
+  joinCode     String?   @unique
+  tier         String    @default("free")
+  maxProjects  Int       @default(1)
+  maxMembers   Int       @default(20)
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  members      Member[]
+  tasks        Task[]
+}
+
+model Member {
+  id        String   @id @default(uuid())
+  role      String
+  roleType  String   @default("member")
+  division  String
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  assignedTasks Task[] @relation("TaskAssignee")
+
+  @@unique([userId, orgId])
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  category    String?  // FIX: Dibuat opsional
+  difficulty  String   
+  status      String   @default("not_started")
+  deadline    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  assigneeId  String?
+  assignee    Member?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  comments    TaskComment[]
+  attachments Attachment[] // FIX: Menambahkan relasi Attachment
+}
+
+model Attachment {
+  id         String   @id @default(uuid())
+  name       String
+  url        String
+  type       String   // 'link' atau 'file'
+  uploadedBy String
+  createdAt  DateTime @default(now())
+
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  text      String
+  createdAt DateTime @default(now())
+
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from "express";
 import path from "path";
 import cors from "cors";
@@ -11,9 +12,42 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
+  const parseAIResponse = <T>(text: string, endpoint: string): T => {
+    const normalized = text
+      .replace(/```(?:json)?/g, '')
+      .trim();
+
+    const candidates = [normalized];
+    const match = normalized.match(/({[\s\S]*}|\[[\s\S]*\])/);
+    if (match) {
+      candidates.unshift(match[0]);
+    }
+
+    for (const candidate of candidates) {
+      try {
+        return JSON.parse(candidate) as T;
+      } catch {
+        // continue to next candidate
+      }
+    }
+
+    throw new Error(`Unable to parse AI response as JSON for ${endpoint}: ${text}`);
+  };
+
+  const apiKey = process.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error('Missing VITE_GEMINI_API_KEY environment variable. Please set it in .env or your environment.');
+    process.exit(1);
+  }
+
   // Gemini Setup
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-1.5-flash",
+    generationConfig: {
+      responseMimeType: "application/json", 
+    }
+  });
 
   // API Routes
   app.post("/api/recommendations", async (req, res) => {
@@ -30,13 +64,13 @@ async function startServer() {
         - Prioritas: ${task.difficulty}
         
         Anggota Tim Tersedia (dengan data Skill & Expertise):
-        ${JSON.stringify(members.map(m => ({ 
+        ${JSON.stringify(members.map((m: any) => ({ 
           id: m.id, 
           name: m.name, 
           role: m.role, 
           expertise: m.expertise, 
           skills: m.skills,
-          workloadPoints: history?.filter(h => h.assigneeId === m.id).length || 0 
+          workloadPoints: history?.filter((h: any) => h.assigneeId === m.id).length || 0 
         })))}
         
         Instruksi:
@@ -50,17 +84,23 @@ async function startServer() {
         Hanya kembalikan JSON.
       `;
 
+
       const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
-      // Basic cleanup in case Gemini returns markdown
-      const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-      res.json(JSON.parse(cleanJson));
+      const responseText = String(result.response.text());
+      try {
+        res.json(parseAIResponse(responseText, '/api/recommendations'));
+      } catch (parseError) {
+        console.error("AI Recommendation Parse Error:", parseError, responseText);
+        throw parseError;
+      }
     } catch (error) {
       console.error("AI Recommendation Error:", error);
       res.status(500).json({ error: "Failed to generate recommendations" });
     }
   });
 
+
+  
   app.post("/api/workload-insights", async (req, res) => {
     try {
       const { members, tasks } = req.body;
@@ -86,10 +126,16 @@ async function startServer() {
         Bahasa Indonesia. Tanpa markdown.
       `;
 
+
       const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
-      const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-      res.json(JSON.parse(cleanJson));
+      const responseText = String(result.response.text());
+      try {
+        res.json(parseAIResponse(responseText, '/api/workload-insights'));
+      } catch (parseError) {
+        console.error("AI Workload Parse Error:", parseError, responseText);
+        throw parseError;
+      }
+  
     } catch (error) {
       console.error("AI Workload Error:", error);
       res.status(500).json({ error: "Failed to generate workload insights" });
